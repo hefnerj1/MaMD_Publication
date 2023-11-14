@@ -4,7 +4,7 @@
 ####  code to run MaMD with simulated input scores and groups ####
 
 # load reference data 
-MaMDR <- read.csv("C:/RThings/MaMD_1Jan2022_AnalData.csv")
+MaMDR <- read.csv("C:/RThings/MaMD_1Jan2022_Data.csv")
 View(MaMDR)
 
 
