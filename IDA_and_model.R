@@ -58,9 +58,7 @@ des.stat<-psych::describeBy(data,data$Sex)
 ################################################################################
 # Item (per variable) missingness
 tab1 <- data  %>%
-  dplyr::select(Sex, ANS,INA,IOB,MT,NAS,NAW,NBC,NBS,NO,OBS,PBD,PZT,GOL,NOL,BNL,
-                BBH,XCB,WFB,ZYB,AUB,ASB,BPL,NPH,NLH,JUB,MDH,
-                NLB,OBH,OBB,DKB,FMB,EKB,FRC,PAC,OCC,FOL,FOB) %>%    miss_var_summary() %>%
+  dplyr::select(Group, ANS,INA,IOB,MT,NAS,NAW,NBC,NBS,NO,OBS,PBD,PZT) %>%    miss_var_summary() %>%
   gt::gt() %>%
   gt::cols_label(
     variable = "Variable",
@@ -161,10 +159,10 @@ NO <- (cols3[cut(data$NO, breaks=quantile(data$NO, c(0,1)), include.lowest=TRUE)
 OBS <- (cols3[cut(data$OBS, breaks=quantile(data$OBS, c(0,1)), include.lowest=TRUE)])
 PBD <- (cols3[cut(data$PBD, breaks=quantile(data$PBD, c(0,1)), include.lowest=TRUE)])
 PZT <- (cols3[cut(data$PZT, breaks=quantile(data$PZT, c(0,.5,1)), include.lowest=TRUE)])
-Sex <- brewer.pal(11, 'Spectral') [factor(data$Sex)]
+Group <- brewer.pal(11, 'Spectral') [factor(data$Group)]
 plot(dend1, nodePar = nodePar, leaflab = "none", ylab="Height")
 #mms medians
-my.medians.max <- data %>% group_by(Group ) %>% summarise(ANS=median(ANS), INA=median(INA), IOB=median(IOB),
+my.medians.max <- data %>% group_by(Group) %>% summarise(ANS=median(ANS), INA=median(INA), IOB=median(IOB),
                                                       MT=median(MT), NAW=median(NAW),NBC=median(NBC),
                                                        NO=median(NO),PBD=median(PBD),PZT=median(PZT), ZS=median(ZS))
 my.medians.max.all <- data %>% summarise(ANS=median(ANS), INA=median(INA), IOB=median(IOB),
@@ -174,7 +172,6 @@ my.IQR.max.all <- data %>% summarise(ANS=median(ANS), INA=median(INA), IOB=media
                                               MT=median(MT), NAW=median(NAW),NBC=median(NBC),
                                               NO=median(NO),PBD=median(PBD),PZT=median(PZT), ZS=median(ZS))
 ################################################################################
-
 # transforming in a data frame with types as names
 my.medians.max <- as.data.frame(my.medians.max)
 dimnames(my.medians.max)[[1]] <- my.medians.max[,1]
