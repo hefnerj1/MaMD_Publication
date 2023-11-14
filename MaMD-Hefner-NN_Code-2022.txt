@@ -1,0 +1,286 @@
+
+
+
+####  code to run MaMD with simulated input scores and groups ####
+
+# load reference data 
+MaMDR <- read.csv("C:/RThings/MaMD_1Jan2022_AnalData.csv")
+View(MaMDR)
+
+
+# load packages FIRST when local.
+library("ModelMetrics")
+library("nnet")
+library("dplyr")
+library("caret")
+library("e1071")
+
+
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+
+
+# choose groups as if using front end
+groups <- c('African','Asian','European');
+
+
+#groups <- c('AmericanBlack','AmericanWhite'); 
+
+#groups <- c('AmericanWhite','SWHispanic','AmericanBlack');
+
+#groups <- c('African','Amerindian','Asian','Eskimo','European','Hispanic','PacificIsland');
+
+
+
+
+
+
+# simulate data as if using app front end
+# current case vars selected and scores
+input_file <- 'C:\\RThings\\MaMD_reference input-3 groups ALL vars.csv' # trim(args[3])	# file where user inputs will be saved
+
+# output file name
+output_file <- 'C:\\RThings\\LATEST_MaMD_OUTPUT.txt' # trim(args[4])
+
+#####################################
+
+# copy data for analysis
+aNN_data <- MaMDR;
+
+# set variable for column name
+GroupCol <- 'Ancestry';
+#GroupCol <- 'GeoOrigin';
+
+# rename GroupCol -- group column -- for analysis
+names(aNN_data)[names(aNN_data) == GroupCol] <- 'Group';
+
+# get data from selected groups
+aNN_data<-aNN_data[aNN_data$Group %in% unlist(strsplit(groups, split=',')),] %>% droplevels()
+
+
+# read current case values
+inputs<-read.csv(input_file, sep=',', header=T)
+
+
+aNN_data = aNN_data[,!sapply(inputs, function(x) mean(is.na(x)))>0.5]
+# apply same sapply to inputs to remove NA columns (or not pass in via original inputs file)
+aNN_data = na.omit(aNN_data)
+
+#  
+aNN_data$Group<-as.factor(aNN_data$Group)
+aNN_formula<-as.formula(Group ~ .)
+
+###############################################
+
+
+# MaMD NNet analysis
+
+# original
+#fit<-suppressWarnings(nnet::nnet(aNN_formula, data=aNN_data, size=10, rang=0.1, decay=5e-4, maxit=2000, trace=FALSE))
+
+# average NN modelling  # MUST include size = argument!
+# fit <- avNNet (formula = Group ~ ., data = aNN_data, bag = TRUE, size = 3, repeats = 20, maxit = 2000, trace = FALSE)
+
+##########################################################################################
+# NEW code to use caret to pick best NN model
+
+
+# NN code with tunegrid and subsampling:
+
+ctrl  <- trainControl(method  = "cv",number  = 10, 
+                      summaryFunction = multiClassSummary, # Multiple metrics
+                      classProbs=T,# Required for the ROC curves
+                      savePredictions = T, # Required for the ROC curves
+                      ## new option here:
+                      sampling = "down");
+
+set.seed(150) #For replication (I've added the same in all "trains" so you can just run that part independently)
+
+# Hidden layer with one neuron 
+
+# cannot include unique column (MaMDID)
+#fit.NN <- train(Group ~ ., data = aNN_data, 
+
+#  Find best model params 
+# using full suite of traits 
+fit.NN <- train(Group ~ ANS+ INA+ IOB+ MT+ NAW+ NBC+ NO+ PBD+ PZT+ ZS, data = aNN_data, 
+                method = "nnet", trace = F,
+                trControl = ctrl, 
+                preProcess = c("center","scale"), 
+                maxit = 250,    # Maximum number of iterations
+                tuneGrid = data.frame('size' = c(3,2,3,4,5,6,7,7,8,9), 'decay' = c(0.1,0,0,0,0.1,0.1,0.1,0,0,0)),
+                # tuneGrid = data.frame(size = 0, decay = 0),skip=TRUE, # Technically, this is log-reg
+                metric = "Accuracy");
+
+
+############################################################################################
+
+# f gives posterior probs for SOME of the reference data
+f <- fitted(fit.NN); # fitted.values
+
+# this gives posterior probs for ALL of the reference data
+ppbs <- predict(fit.NN, type = 'prob');
+
+# optional: get pprobs for reference data
+# pprobs<-predict(fit, type="prob");
+
+
+# get predictions for training / reference data
+# original
+# mod<-predict(fit, type="class")
+
+# get predictions for training / reference data
+# for caret-NN
+mod <- predict(fit.NN, type="raw");
+mod <- as.factor(mod)
+
+
+
+# NOTE: switched in original! correct is confusionmatrix(PREDICTED, TRUE)
+#ctab<-caret::confusionMatrix(aNN_data$Group, mod)
+
+ctab<-caret::confusionMatrix(mod, aNN_data$Group)
+
+# print confusion matrix
+
+cat("CORRECTED Table for", GroupCol, '\n');
+cat(capture.output(inputs), sep = '\n');
+ctab
+
+
+############ more diagnostics and lists
+
+paste('Best model:', '\n');
+fit.NN$bestTune[1,]
+
+
+RefGrpClassTbl <- cbind(aNN_data['MaMDID'],aNN_data['Group'], mod, ppbs);
+
+names(RefGrpClassTbl)[names(RefGrpClassTbl) == 'mod'] <- 'Into';
+
+
+#####################################################
+# predict current case 
+
+# type must be "prob" with caret-NN
+pred<-predict(fit.NN, newdata=inputs, type=c("prob"))
+# not needed with caret-NN
+# pred.post<-cbind(fit$xlevels, pred)
+pred.post<-as.data.frame(pred.post, row.names="Posterior Prob")
+pred.post$V1<-NULL
+pred.post<-format(round(pred,3), nsmall=3)
+
+# pred.post
+#   AmericanBlack AmericanWhite SWHispanic
+# 1 "0.002"       "0.396"       "0.601"   
+
+# Get label of predicted group membership
+
+aNNpred<-colnames(pred)[apply(pred, 1, which.max)]
+
+# aNpred
+# [1] "SWHispanic"
+
+### save more output to a file ###################################
+
+# populate output file: title
+write(paste("MaMD Results", "\n"), file=output_file, append=FALSE, sep="")
+
+# new tables out: variables / traits
+write("Case Scores", file=output_file, append=TRUE, sep="")
+
+# cat writes to a file without a line feed;
+#cat("\t", file=output_file, append=TRUE)
+cat(capture.output(inputs), file = output_file, sep = '\n', append = T)
+
+
+# new tables out: confusion matrix
+write(paste("\nConfusion Matrix: Counts"), file=output_file, append=T, sep="")
+cat(capture.output(ctab$table), file = output_file, sep = '\n', append = T)
+
+# save percentages correct in confusion matrix
+write(paste("\nConfusion Matrix: Percentages"), file=output_file, append=T, sep="")
+cat(capture.output(round(prop.table(ctab$table, 2),3)*100), file = output_file, sep = '\n', append = T);
+
+# save percentages correct for each group
+write(paste("\nAccuracy for each Group"), file=output_file, append=T, sep="")
+cat(capture.output(diag(round(prop.table(ctab$table, 2),3)*100)), file = output_file, sep = '\n', append = T);
+
+
+# output pprobs of current case
+write(paste("\nPosterior Probs of current case for each group"), file=output_file, append=T, sep="")
+cat(capture.output(round(pred,3)), file = output_file, sep = '\n', append = T);
+
+
+# new out: best model
+write(paste('\nBest model:'), file=output_file, append=TRUE, sep="");
+cat(capture.output(fit.NN$bestTune[1,]), file=output_file, append=TRUE, quote = F, sep="\n");
+
+# NEW NEW tables out using print.data.frame(): Reference group classifications
+write(paste("\nReference Group Classifications"), file=output_file, append=T, sep="")
+#write.table(RefGrpClassTbl, file = output_file, append = T, row.names = F, col.names = T, quote =F, sep = '  ');
+
+cat(capture.output(print.data.frame(RefGrpClassTbl, digits = 3, row.names = F, max = 9999),file = output_file, append = T));
+
+#####################################################
+
+# the rest of the output from before 
+write("\n{", file=output_file, append=TRUE, sep="")
+ 
+write(paste("\"prediction\": \"", trimws(aNNpred), "\", "), file=output_file, append=TRUE, sep="")
+write(paste("\"sensitivity\": \"", trimws(gsub(paste("Class: ", trimws(aNNpred), sep=""), "", ctab$byClass[,"Sensitivity"][paste("Class: ", trimws(aNNpred), sep="")])), "\", "), file=output_file, append=TRUE, sep="")
+write(paste("\"specificity\": \"", trimws(gsub(paste("Class: ", trimws(aNNpred), sep=""), "", ctab$byClass[,"Specificity"][paste("Class: ", trimws(aNNpred), sep="")])), "\", "), file=output_file, append=TRUE, sep="")
+
+#gsub("Class: Thailand", "", ctab$byClass[,"Specificity"]["Class: Thailand"])
+
+write("\"probabilities\": [", file=output_file, append=TRUE, sep="")
+counter<-0
+for (i in colnames(pred.post)) {
+  counter<-counter+1
+  write(paste("{\"group\": \"", trimws(i), "\", \"probability\": ", pred.post[1,i], "}", ifelse(counter!=length(pred.post), ",", "")), file=output_file, append=TRUE, sep="")
+}
+write("], ", file=output_file, append=TRUE, sep="")
+
+
+write("\"matrix\": {", file=output_file, append=TRUE, sep="")
+rcounter<-0
+ccounter<-0
+for(row in rownames(ctab$table)) {
+  write(paste("\"", trimws(row), "\": ["), file=output_file, append=TRUE, sep="")
+  rcounter<-rcounter+1
+  ccounter<-0
+
+  for (col in colnames(ctab$table)) {
+    ccounter<-ccounter+1
+    write(paste("{\"group\": \"", trimws(col), "\", \"score\":", trimws(ctab$table[row,col]), "}", ifelse(ccounter!=length(colnames(ctab$table)), ",", "")), file=output_file, append=TRUE, sep="")
+  }
+  write(paste("]", ifelse(rcounter!=length(rownames(ctab$table)), ",", "")), file=output_file, append=TRUE, sep="")
+}
+write("}, ", file=output_file, append=TRUE, sep="")
+
+
+write("\"statistics\": {", file=output_file, append=TRUE, sep="")
+counter<-0
+for(key in names(ctab$overall)){
+  value<-ctab$overall[key]
+  counter<-counter+1
+  write(paste("\"", trimws(key), "\": \"", trimws(value), "\"", ifelse(counter!=length(ctab$overall), ",", "")), file=output_file, append=TRUE, sep="")
+}
+write("} ", file=output_file, append=TRUE, sep="")
+
+write("}", file=output_file, append=TRUE, sep="")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
